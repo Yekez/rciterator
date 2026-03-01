@@ -1,0 +1,284 @@
+
+<!-- this is the main page for reinforced concrete cross-section solver-->
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RC Iterator</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+
+
+<body class="bg-light">
+    <div class="container py-4">
+        <h1 class="mb-3">Reinforced Concrete Cross-Section Solver</h1>
+        <p class="mb-4">Enter the parameters for the reinforced concrete cross-section:</p>
+
+        <div class="row g-3 align-items-end mb-3">
+            <div class="col-md-3">
+                <input type="text" id="width" class="form-control" placeholder="Width (mm)" inputmode="numeric" pattern="[0-9]*">
+            </div>
+            <div class="col-md-3">
+                <input type="text" id="height" class="form-control" placeholder="Height (mm)" inputmode="numeric" pattern="[0-9]*">
+            </div>
+            <div class="col-md-3">
+                <input type="text" id="clearance" class="form-control" placeholder="Clearance (mm)" inputmode="numeric" pattern="[0-9]*">
+            </div>
+            <div class="col-md-3">
+                <select id="numLayers" class="form-select">
+                    <option value="1">1 Layer</option>
+                    <option value="2">2 Layers</option>
+                    <option value="3" selected>3 Layers</option>
+                    <option value="4">4 Layers</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- and based on the number of layers, we will dynamically create input fields for each layer -->
+        <!-- if user selects one layer, we should ask for top or bottom-->
+        <!-- for other options, we will ask for the depth of each layer, steel diameter and steel area-->
+
+        <div id="steelLayersInput" class="mb-3"></div>
+        <!-- display total steel area -->
+        <div id="totalSteelArea" class="mb-4 fw-bold"></div>
+
+        <!-- draw the cross-section here-->
+        <div class="mb-4">
+            <p>Cross-Section:</p>
+            <canvas id="crossSectionCanvas" width="400" height="400" style="border:5px solid #000000; background:white;"></canvas>
+        </div>
+    </div>
+</body>
+</html>
+
+<script>
+    //we should define a function to draw the cross-section based on the input parameters
+
+    function drawCrossSection() {
+        const canvas = document.getElementById('crossSectionCanvas');
+        // get the width and height of the canvas from the input fields
+        let width = parseInt(document.getElementById('width').value) || 400;
+        let height = parseInt(document.getElementById('height').value) || 400;
+        let clearance = parseFloat(document.getElementById('clearance')?.value);
+        if (isNaN(clearance) || clearance < 0) clearance = 25; // default 25mm if not set
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, width, height);
+        // draw the rectangular cross-section   
+        ctx.fillStyle = 'lightgray';
+        ctx.fillRect(0, 0, width, height);
+
+        // draw steel bars for each layer
+        const steelLayers = document.querySelectorAll('.steelLayer');
+        steelLayers.forEach(layer => {
+                const barCount = parseInt(layer.querySelector('.barCount')?.value);
+                const diameter = parseFloat(layer.querySelector('.steelDiameter')?.value);
+                const depth = parseFloat(layer.querySelector('.steelDepth')?.value);
+            if (!isNaN(barCount) && barCount > 0 && !isNaN(depth) && !isNaN(diameter) && diameter > 0) {
+                // Calculate number of bars: n = area / (pi * d^2 / 4)
+                const barArea = Math.PI * Math.pow(diameter, 2) / 4;
+                    let nBars = Math.max(1, barCount);
+                // margin from sides (clearance + half bar diameter)
+                const margin = Math.max(clearance + diameter / 2, diameter * 1.5);
+                // y position (depth from top)
+                let y = depth;
+                if (y < margin) y = margin;
+                if (y > height - margin) y = height - margin;
+                // distribute bars horizontally
+                let availableWidth = width - 2 * margin;
+                if (nBars === 1) {
+                    // single bar in the middle
+                    ctx.beginPath();
+                    ctx.arc(width / 2, y, diameter / 2, 0, 2 * Math.PI);
+                    ctx.fillStyle = 'red';
+                    ctx.fill();
+                    ctx.strokeStyle = 'black';
+                    ctx.stroke();
+                } else {
+                    for (let i = 0; i < nBars; i++) {
+                        let x = margin + (availableWidth) * (i / (nBars - 1));
+                        ctx.beginPath();
+                        ctx.arc(x, y, diameter / 2, 0, 2 * Math.PI);
+                        ctx.fillStyle = 'red';
+                        ctx.fill();
+                        ctx.strokeStyle = 'black';
+                        ctx.stroke();
+                    }
+                }
+            }
+        });
+    }
+
+    // Calculate and display total steel area
+    function updateTotalSteelArea() {
+        const areaInputs = document.querySelectorAll('.steelArea');
+        let total = 0;
+        areaInputs.forEach(input => {
+            const val = parseFloat(input.value);
+            if (!isNaN(val)) total += val;
+        });
+        document.getElementById('totalSteelArea').textContent =
+            'Total Steel Area: ' + total + ' mm²';
+    }
+        // Calculate and display total steel area, and per-layer area
+        function updateTotalSteelArea() {
+            let total = 0;
+            const steelLayers = document.querySelectorAll('.steelLayer');
+            steelLayers.forEach(layer => {
+                const barCount = parseInt(layer.querySelector('.barCount')?.value);
+                const diameter = parseFloat(layer.querySelector('.steelDiameter')?.value);
+                let area = 0;
+                if (!isNaN(barCount) && barCount > 0 && !isNaN(diameter) && diameter > 0) {
+                    area = barCount * (Math.PI * Math.pow(diameter, 2) / 4);
+                }
+                total += area;
+                // Show per-layer area
+                const areaSpan = layer.querySelector('.layerArea');
+                if (areaSpan) areaSpan.textContent = area > 0 ? (area.toFixed(2) + ' mm²') : '';
+            });
+            document.getElementById('totalSteelArea').textContent =
+                'Total Steel Area: ' + total.toFixed(2) + ' mm²';
+        }
+
+    // Initial call in case there are default fields
+    updateTotalSteelArea();
+    // Listen for input on steelLayersInput (for initial state)
+    document.getElementById('steelLayersInput').addEventListener('input', updateTotalSteelArea);
+
+
+
+    // add event listeners to redraw the cross-section when input values change
+    document.getElementById('width').addEventListener('input', function() {
+        drawCrossSection();
+        checkSteelDepthWarnings();
+    });
+    document.getElementById('height').addEventListener('input', function() {
+        drawCrossSection();
+        checkSteelDepthWarnings();
+    });
+    document.getElementById('clearance').addEventListener('input', function() {
+        drawCrossSection();
+        checkSteelDepthWarnings();
+    });
+    document.getElementById('steelLayersInput').addEventListener('input', function() {
+        drawCrossSection();
+        checkSteelDepthWarnings();
+    });
+
+
+
+
+    function populateSteelLayers(numLayers) {
+        const steelLayersInput = document.getElementById('steelLayersInput');
+        steelLayersInput.innerHTML = '';
+        for (let i = 0; i < numLayers; i++) {
+            const layerDiv = document.createElement('div');
+            layerDiv.className = 'steelLayer';
+            layerDiv.innerHTML = `
+                <div class="row g-2 align-items-center mb-2">
+                    <div class="col-3">
+                        <input type="text" class="form-control barCount" placeholder="Bar Count" inputmode="numeric" pattern="[0-9]*">
+                    </div>
+                    <div class="col-3">
+                        <input type="text" class="form-control steelDiameter" placeholder="Steel Diameter (mm)" inputmode="numeric" pattern="[0-9]*">
+                    </div>
+                    <div class="col-4">
+                        <input type="text" class="form-control steelDepth" placeholder="Steel Depth (mm)" inputmode="numeric" pattern="[0-9]*">
+                    </div>
+                    <div class="col-2">
+                        <span class="depthWarning" style="color:red; font-weight:bold; display:none;"></span>
+                        <span class="layerArea" style="margin-left:0.5em;color:#333;"></span>
+                    </div>
+                </div>
+            `;
+            steelLayersInput.appendChild(layerDiv);
+        }
+        // Attach input event to new fields for area calculation
+        updateTotalSteelArea();
+        // Remove previous listeners to avoid duplicates
+        steelLayersInput.removeEventListener('input', updateTotalSteelArea);
+        steelLayersInput.addEventListener('input', updateTotalSteelArea);
+        // Check depth warnings
+        checkSteelDepthWarnings();
+        // Redraw cross-section
+        drawCrossSection();
+    }
+
+    document.getElementById('numLayers').addEventListener('change', function() {
+        const numLayers = parseInt(this.value);
+        populateSteelLayers(numLayers);
+    });
+
+    // On page load, set default to 3 layers
+    window.addEventListener('DOMContentLoaded', function() {
+        document.getElementById('width').value = '500';
+        document.getElementById('height').value = '500';
+        document.getElementById('clearance').value = '40';
+        document.getElementById('numLayers').value = '3';
+        populateSteelLayers(3);
+        // Set default steel values: 3 layers, 8 bars of 30mm for top and bottom, 2 bars of 30mm for middle
+        // Calculate area for 8 bars of 30mm: 8 * (pi * 30^2 / 4)
+        var barArea = Math.PI * Math.pow(30,2) / 4;
+        var area8 = (8 * barArea).toFixed(2);
+        var area2 = (2 * barArea).toFixed(2);
+        var steelLayers = document.querySelectorAll('.steelLayer');
+        // Top layer
+        if (steelLayers[0]) {
+              steelLayers[0].querySelector('.barCount').value = '3';
+            steelLayers[0].querySelector('.steelDiameter').value = '30';
+            steelLayers[0].querySelector('.steelDepth').value = '40';
+        }
+        // Middle layer (2 bars, closer to edges)
+        if (steelLayers[1]) {
+              steelLayers[1].querySelector('.barCount').value = '2';
+            steelLayers[1].querySelector('.steelDiameter').value = '30';
+            steelLayers[1].querySelector('.steelDepth').value = '250';
+        }
+        // Bottom layer
+        if (steelLayers[2]) {
+              steelLayers[2].querySelector('.barCount').value = '3';
+            steelLayers[2].querySelector('.steelDiameter').value = '30';
+            steelLayers[2].querySelector('.steelDepth').value = '460';
+        }
+        updateTotalSteelArea();
+        checkSteelDepthWarnings();
+        drawCrossSection();
+    });
+
+    // Warn if steel depth is less than clearance
+    function checkSteelDepthWarnings() {
+        let clearance = parseFloat(document.getElementById('clearance')?.value);
+        if (isNaN(clearance) || clearance < 0) clearance = 25;
+        let height = parseFloat(document.getElementById('height')?.value);
+        if (isNaN(height) || height <= 0) height = 500;
+        const steelLayers = document.querySelectorAll('.steelLayer');
+        steelLayers.forEach((layer, idx) => {
+            const depthInput = layer.querySelector('.steelDepth');
+            const warningSpan = layer.querySelector('.depthWarning');
+            const depth = parseFloat(depthInput?.value);
+            warningSpan.textContent = '';
+            warningSpan.style.display = 'none';
+            if (!isNaN(depth)) {
+                // Top clearance check
+                if (depth < clearance) {
+                    warningSpan.textContent = '⚠️ Depth < clearance from top!';
+                    warningSpan.style.display = 'inline';
+                }
+                // Bottom clearance check (only for bottommost layer)
+                if (idx === steelLayers.length - 1 && (height - depth) < clearance) {
+                    warningSpan.textContent = '⚠️ Too close to bottom edge!';
+                    warningSpan.style.display = 'inline';
+                }
+            }
+        });
+    }
+
+
+
+</script>
+
