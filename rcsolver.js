@@ -2,6 +2,37 @@
 // page 100
 
 /*
+Initial values (defaults used in solver when not provided):
+
+  Section (concrete):
+    width  = 400 mm
+    height = 400 mm
+    layers = []   (steel layers set by caller; each layer: barCount, diameter mm, depth mm from top)
+
+  Materials:
+    fck   = 30 MPa          (UI default; solver uses fc = 0.85*fck if fck given, else fc = 25)
+    eps0  = 0.002           (Hognestad strain at peak)
+    epsCu = 0.0038          (ultimate concrete strain; Eurocode 0.0035)
+    Es    = 200000 MPa
+    fyk    = 420 MPa         
+
+  M–κ sweep:
+    epsMin  = 0.0002
+    epsMax  = 0.02
+    epsStep = 0.0002
+
+  Equilibrium (bisection):
+    c range   = 1 to height*1.5 mm
+    errorLimit = max(|N_app|*0.001, 1) N
+    maxIter  = 80
+    nStrip   = 80 (concrete integration)
+
+  Curve stop:
+    when M < 0.9 * M_max (10% drop from max moment, as I remember something similar we discussed in the class)
+*/
+
+
+/*
 1. Choose the extreme fiber concrete strain
 2. Assume a neutral axis depth, assume "c"
 3. From the compatibility equation, compute the steel strains
