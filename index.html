@@ -9,6 +9,7 @@
     <title>RC Iterator</title>
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 
 
@@ -50,10 +51,49 @@
             <p>Cross-Section:</p>
             <canvas id="crossSectionCanvas" width="400" height="400" style="border:5px solid #000000; background:white;"></canvas>
         </div>
+
+        <!-- Material & axial force for M-κ -->
+        <div class="card mb-4">
+            <div class="card-header fw-bold">Moment–curvature</div>
+            <div class="card-body">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-2">
+                        <label class="form-label small">fck (MPa)</label>
+                        <input type="text" id="fck" class="form-control" placeholder="30" value="30">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small">fyk (MPa)</label>
+                        <input type="text" id="fyk" class="form-control" placeholder="420" value="420">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small">Es (MPa)</label>
+                        <input type="text" id="Es" class="form-control" placeholder="200000" value="200000">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small">ε_cu (ultimate)</label>
+                        <input type="text" id="epsCu" class="form-control" placeholder="0.0038" value="0.0038" title="Concrete ultimate strain (e.g. 0.0038 book, 0.0035 Eurocode)">
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small">Axial force (kN) — one per curve</label>
+                    <div id="forceChips" class="d-flex flex-wrap gap-2 align-items-center"></div>
+                    <div class="input-group mt-2" style="max-width:12rem;">
+                        <input type="text" id="newForce" class="form-control" placeholder="e.g. 500" inputmode="numeric">
+                        <button type="button" class="btn btn-outline-secondary" id="addForce">Add</button>
+                    </div>
+                </div>
+                <button type="button" class="btn btn-primary" id="calcMkappa">Calculate & draw M–κ</button>
+                <button type="button" class="btn btn-outline-secondary ms-2" id="exportMkappa">Export CSV</button>
+                <div class="mt-3">
+                    <canvas id="mkappaChart" height="280" style="max-width:100%;"></canvas>
+                </div>
+            </div>
+        </div>
     </div>
 </body>
 </html>
 
+<script src="rcsolver.js"></script>
 <script>
     //we should define a function to draw the cross-section based on the input parameters
 
@@ -231,7 +271,7 @@
         if (steelLayers[0]) {
               steelLayers[0].querySelector('.barCount').value = '3';
             steelLayers[0].querySelector('.steelDiameter').value = '30';
-            steelLayers[0].querySelector('.steelDepth').value = '40';
+            steelLayers[0].querySelector('.steelDepth').value = '50';
         }
         // Middle layer (2 bars, closer to edges)
         if (steelLayers[1]) {
@@ -264,13 +304,18 @@
             warningSpan.textContent = '';
             warningSpan.style.display = 'none';
             if (!isNaN(depth)) {
+                const minSteelDepth = 50;
+                if (depth < minSteelDepth) {
+                    warningSpan.textContent = '⚠️ Depth < 50 mm (min)!';
+                    warningSpan.style.display = 'inline';
+                }
                 // Top clearance check
-                if (depth < clearance) {
+                else if (depth < clearance) {
                     warningSpan.textContent = '⚠️ Depth < clearance from top!';
                     warningSpan.style.display = 'inline';
                 }
                 // Bottom clearance check (only for bottommost layer)
-                if (idx === steelLayers.length - 1 && (height - depth) < clearance) {
+                else if (idx === steelLayers.length - 1 && (height - depth) < clearance) {
                     warningSpan.textContent = '⚠️ Too close to bottom edge!';
                     warningSpan.style.display = 'inline';
                 }
@@ -278,6 +323,157 @@
         });
     }
 
+    // --- M–κ graph: force list and chart ---
+    let forceValues = [0, 500, 1000, 2000];
+    let mkappaChartInstance = null;
+    let lastMkappaData = null; // [{ N_kN, curve: [{ kappa, M }, ...] }, ...]
+
+    function renderForceChips() {
+        const container = document.getElementById('forceChips');
+        container.innerHTML = '';
+        forceValues.forEach((val, i) => {
+            const chip = document.createElement('span');
+            chip.className = 'badge bg-secondary d-inline-flex align-items-center gap-1';
+            chip.innerHTML = val + ' kN <button type="button" class="btn-close btn-close-white btn-close-sm" aria-label="Remove"></button>';
+            chip.querySelector('button').addEventListener('click', () => {
+                forceValues.splice(i, 1);
+                renderForceChips();
+            });
+            container.appendChild(chip);
+        });
+    }
+
+    document.getElementById('addForce').addEventListener('click', function() {
+        const input = document.getElementById('newForce');
+        const v = parseFloat(input.value);
+        if (!isNaN(v)) {
+            forceValues.push(v);
+            renderForceChips();
+            input.value = '';
+        }
+    });
+    document.getElementById('newForce').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') document.getElementById('addForce').click();
+    });
+
+    function getSectionFromForm() {
+        const width = parseFloat(document.getElementById('width').value) || 400;
+        const height = parseFloat(document.getElementById('height').value) || 400;
+        const layers = [];
+        document.querySelectorAll('.steelLayer').forEach(layer => {
+            const barCount = parseInt(layer.querySelector('.barCount')?.value, 10);
+            const diameter = parseFloat(layer.querySelector('.steelDiameter')?.value);
+            const depth = parseFloat(layer.querySelector('.steelDepth')?.value);
+            if (!isNaN(barCount) && !isNaN(diameter) && !isNaN(depth))
+                layers.push({ barCount, diameter, depth });
+        });
+        return { width, height, layers };
+    }
+
+    document.getElementById('calcMkappa').addEventListener('click', function() {
+        const section = getSectionFromForm();
+        const fck = parseFloat(document.getElementById('fck').value) || 30;
+        const fyk = parseFloat(document.getElementById('fyk').value) || 420;
+        const Es = parseFloat(document.getElementById('Es').value) || 200000;
+        const epsCu = parseFloat(document.getElementById('epsCu').value);
+        const materials = { fck, fyk, Es };
+        if (!isNaN(epsCu) && epsCu > 0) materials.epsCu = epsCu;
+        RCSolver.setSection(section).setMaterials(materials);
+        const colors = ['#0d6efd', '#198754', '#dc3545', '#fd7e14', '#6f42c1', '#20c997'];
+        const datasets = [];
+        lastMkappaData = [];
+        forceValues.forEach((N_kN, idx) => {
+            const N_app = N_kN * 1000; // kN -> N
+            const curve = RCSolver.momentCurvatureCurve(N_app, {
+                epsMin: 0.0002,
+                epsMax: 0.02,
+                epsStep: 0.0002
+            });
+            lastMkappaData.push({ N_kN, curve });
+            const kappaPerM = curve.map(p => p.kappa * 1000);   // 1/mm -> 1/m
+            const M_kNm = curve.map(p => p.M / 1e6);           // N·mm -> kN·m
+            datasets.push({
+                label: 'N = ' + N_kN + ' kN',
+                data: kappaPerM.map((k, i) => ({ x: k, y: M_kNm[i] })),
+                borderColor: colors[idx % colors.length],
+                backgroundColor: 'transparent',
+                tension: 0.1,
+                pointRadius: 0
+            });
+        });
+        const canvas = document.getElementById('mkappaChart');
+        if (mkappaChartInstance) mkappaChartInstance.destroy();
+        mkappaChartInstance = new Chart(canvas, {
+            type: 'line',
+            data: { datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                scales: {
+                    x: {
+                        title: { display: true, text: 'Curvature (1/m)' },
+                        type: 'linear'
+                    },
+                    y: {
+                        title: { display: true, text: 'Moment (kN·m)' },
+                        type: 'linear'
+                    }
+                },
+                plugins: { legend: { position: 'top' } }
+            }
+        });
+    });
+
+    document.getElementById('exportMkappa').addEventListener('click', function() {
+        if (!lastMkappaData || lastMkappaData.length === 0) {
+            alert('Run "Calculate & draw M–κ" first.');
+            return;
+        }
+        const section = RCSolver.section || { layers: [] };
+        const nSteel = (section.layers || []).length;
+        const headerParts = [
+            'Curvature (1/m)', 'Moment (kN·m)', 'Axial force (kN)',
+            'eps_ci', 'c (mm)', 'sigma_c_top (MPa)'
+        ];
+        for (let i = 0; i < nSteel; i++) {
+            headerParts.push('Steel' + (i + 1) + '_depth (mm)', 'Steel' + (i + 1) + '_strain', 'Steel' + (i + 1) + '_stress (MPa)');
+        }
+        const header = headerParts.join(',');
+        const rows = [];
+        lastMkappaData.forEach(function(entry) {
+            entry.curve.forEach(function(p) {
+                const kappaPerM = (p.kappa * 1000).toFixed(6);
+                const M_kNm = (p.M / 1e6).toFixed(4);
+                const epsCi = (p.epsCi != null ? p.epsCi : 0).toFixed(6);
+                const c = (p.c != null ? p.c : 0).toFixed(4);
+                const sigmaC = (p.epsCi != null && p.epsCi > 0 ? RCSolver.sigmaConcrete(p.epsCi) : 0).toFixed(4);
+                const cells = [kappaPerM, M_kNm, entry.N_kN, epsCi, c, sigmaC];
+                for (let i = 0; i < nSteel; i++) {
+                    const layer = section.layers[i];
+                    if (layer && p.c != null && p.epsCi != null) {
+                        const depth = layer.depth != null ? layer.depth : 0;
+                        const epsS = RCSolver.strainAtDepth(depth, p.c, p.epsCi);
+                        const sigS = RCSolver.sigmaSteel(epsS);
+                        cells.push(depth.toFixed(2), epsS.toFixed(6), sigS.toFixed(4));
+                    } else {
+                        cells.push('', '', '');
+                    }
+                }
+                rows.push(cells.join(','));
+            });
+        });
+        const csv = header + '\n' + rows.join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'Mkappa_export.csv';
+        a.click();
+        URL.revokeObjectURL(a.href);
+    });
+
+    window.addEventListener('DOMContentLoaded', function() {
+        renderForceChips();
+    });
 
 
 </script>
