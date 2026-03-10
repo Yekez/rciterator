@@ -33,6 +33,18 @@ Initial values (defaults used in solver when not provided):
 
 
 /*
+Algorithm summary:
+  For a given axial force N_app, we build the M–κ curve by sweeping the top-fibre concrete strain ε_ci
+  from epsMin to epsMax in steps of epsStep. For each ε_ci:
+    1. Find neutral axis depth c by bisection so that Fc + Fs = N_app (force equilibrium).
+    2. Fc = integral of Hognestad σ(ε) over the compression zone (y = 0 to c); Fs = sum of steel
+       layer forces from compatibility ε(d) = ε_ci*(c−d)/c and elastic–perfectly plastic σ(ε).
+    3. Compute M = Mc + Ms about the section centroid; κ = ε_ci / c.
+    4. Append (κ, M) to the curve. Use previous c to narrow the next bisection bracket (hint: max = c*(1+Δε/ε)).
+  Stop when moment has dropped 10% from the maximum. Concrete: Hognestad (parabolic + descending).
+  Steel: elastic–perfectly plastic. No confinement or strain hardening.
+*/
+/*
 1. Choose the extreme fiber concrete strain
 2. Assume a neutral axis depth, assume "c"
 3. From the compatibility equation, compute the steel strains
@@ -183,7 +195,8 @@ alt codes:
       return Mc + Ms;
     },
 
-    // Find c so that F_c + sum(F_si) = N_app. cPrev and nextMax optional (hint: use previous c and max = c*(1+Δε/ε) for next bracket). Returns { ok, c, M } or { ok: false }.
+    // Find c so that F_c + sum(F_si) = N_app. cPrev and nextMax optional 
+    // (hint: use previous c and max = c*(1+Δε/ε) for next bracket). Returns { ok, c, M } or { ok: false }.
     equilibrium(N_app, epsCi, cPrev, nextMax) {
       const s = this.section;
       if (!s) return { ok: false };
@@ -213,7 +226,7 @@ alt codes:
     },
 
     // Build M–κ curve per hint: ε_c^top 0.0002 to 0.02 step 0.0002; bisection for c; then max = c*(1+Δε/ε) for next bracket.
-    // Stop when moment has dropped 10% from max (considerable drop → kill curve).
+    // Stop when moment has dropped 10% from max (considerable drop → kill curve and reduce numerical noise).
     momentCurvatureCurve(N_app, options) {
       const opts = options || {};
       const epsMin = opts.epsMin ?? 0.0002;
@@ -224,14 +237,23 @@ alt codes:
       let nextMax = null; // hint: max = c*(1 + Δε_c^top/ε_c^top) for next iteration
       let M_max = 0;
       for (let epsCi = epsMin; epsCi <= epsMax + epsStep * 0.5; epsCi += epsStep) {
+        // Try to find c so that Fc + Fs = N_app, using previous c and nextMax to narrow the search.
         let res = this.equilibrium(N_app, epsCi, cPrev, nextMax);
+        // If that failed, retry with full bisection range (no bracket) in case we were too narrow.
         if (!res.ok && (cPrev != null || nextMax != null)) res = this.equilibrium(N_app, epsCi, null, null);
+        // Still no solution for this strain step; skip and go to next ε_ci.
         if (!res.ok) continue;
+        // Track the maximum moment we've seen so far (for the 10% drop stop).
         if (res.M > M_max) M_max = res.M;
-        if (M_max > 0 && res.M < 0.9 * M_max) break; // 10% drop from max moment → stop
+        // Stop adding points once moment has dropped 10% from the peak.
+        if (M_max > 0 && res.M < 0.9 * M_max) break; // 10% drop from max moment -> stop
+        // Remember this c so the next iteration can start its bisection near here.
         cPrev = res.c;
+        // Upper bound for next bisection: c*(1 + Δε/ε) so we stay on the same branch.
         nextMax = res.c * (1 + epsStep / epsCi); // hint: set max for next ε_c^top
+        // Curvature from compatibility: κ = ε_ci / c.
         const kappa = epsCi / res.c; // κ = ε_c^top / C
+        // Append this (κ, M) point to the curve; we'll sort by κ later.
         curve.push({ kappa, M: res.M, epsCi, c: res.c });
       }
       curve.sort((a, b) => a.kappa - b.kappa);
