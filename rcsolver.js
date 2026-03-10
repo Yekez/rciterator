@@ -22,7 +22,7 @@ Initial values (defaults used in solver when not provided):
     epsStep = 0.0002
 
   Equilibrium (bisection):
-    c range   = 1 to height*1.5 mm
+    c range   = 1 to height*10 mm
     errorLimit = max(|N_app|*0.001, 1) N
     maxIter  = 80
     nStrip   = 80 (concrete integration)
@@ -200,7 +200,7 @@ alt codes:
     equilibrium(N_app, epsCi, cPrev, nextMax) {
       const s = this.section;
       if (!s) return { ok: false };
-      const h = (s.height || 400) * 1.5;
+      const h = (s.height || 400) * 10; // notes: c max = 10h
       let cLo = 1;
       let cHi = h;
       if (nextMax != null && nextMax > 0) {
@@ -241,12 +241,13 @@ alt codes:
         let res = this.equilibrium(N_app, epsCi, cPrev, nextMax);
         // If that failed, retry with full bisection range (no bracket) in case we were too narrow.
         if (!res.ok && (cPrev != null || nextMax != null)) res = this.equilibrium(N_app, epsCi, null, null);
-        // Still no solution for this strain step; skip and go to next ε_ci.
+        // Still no solution for this strain step; skip and go to next ε_ci. 
+        // This will be the case for very small strains and most likely during the initial iterations for high axial forces.
         if (!res.ok) continue;
         // Track the maximum moment we've seen so far (for the 10% drop stop).
         if (res.M > M_max) M_max = res.M;
         // Stop adding points once moment has dropped 10% from the peak.
-        if (M_max > 0 && res.M < 0.9 * M_max) break; // 10% drop from max moment -> stop
+        if (M_max > 0 && res.M < 0.90 * M_max) break; // 10% drop from max moment -> stop
         // Remember this c so the next iteration can start its bisection near here.
         cPrev = res.c;
         // Upper bound for next bisection: c*(1 + Δε/ε) so we stay on the same branch.
