@@ -258,7 +258,7 @@
     window.addEventListener('DOMContentLoaded', function() {
         document.getElementById('width').value = '500';
         document.getElementById('height').value = '500';
-        document.getElementById('clearance').value = '40';
+        document.getElementById('clearance').value = '50';
         document.getElementById('numLayers').value = '3';
         populateSteelLayers(3);
         // Set default steel values: 3 layers, 8 bars of 30mm for top and bottom, 2 bars of 30mm for middle
@@ -283,7 +283,7 @@
         if (steelLayers[2]) {
               steelLayers[2].querySelector('.barCount').value = '3';
             steelLayers[2].querySelector('.steelDiameter').value = '30';
-            steelLayers[2].querySelector('.steelDepth').value = '460';
+            steelLayers[2].querySelector('.steelDepth').value = '450';
         }
         updateTotalSteelArea();
         checkSteelDepthWarnings();
