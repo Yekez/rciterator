@@ -433,10 +433,10 @@
         const nSteel = (section.layers || []).length;
         const headerParts = [
             'Curvature (1/m)', 'Moment (kN·m)', 'Axial force (kN)',
-            'eps_ci', 'c (mm)', 'sigma_c_top (MPa)'
+            'eps_ci', 'c (mm)', 'sigma_c_top (MPa)', 'Fc (kN)'
         ];
         for (let i = 0; i < nSteel; i++) {
-            headerParts.push('Steel' + (i + 1) + '_depth (mm)', 'Steel' + (i + 1) + '_strain', 'Steel' + (i + 1) + '_stress (MPa)');
+            headerParts.push('Steel' + (i + 1) + '_depth (mm)', 'Steel' + (i + 1) + '_strain', 'Steel' + (i + 1) + '_stress (MPa)', 'Steel' + (i + 1) + '_F (kN)');
         }
         const header = headerParts.join(',');
         const rows = [];
@@ -447,16 +447,24 @@
                 const epsCi = (p.epsCi != null ? p.epsCi : 0).toFixed(6);
                 const c = (p.c != null ? p.c : 0).toFixed(4);
                 const sigmaC = (p.epsCi != null && p.epsCi > 0 ? RCSolver.sigmaConcrete(p.epsCi) : 0).toFixed(4);
-                const cells = [kappaPerM, M_kNm, entry.N_kN, epsCi, c, sigmaC];
+                let Fc_kN = '';
+                let FsLayers = [];
+                if (p.c != null && p.epsCi != null) {
+                    const f = RCSolver.forces(p.epsCi, p.c);
+                    Fc_kN = (f.Fc / 1000).toFixed(4);
+                    FsLayers = f.FsLayers || [];
+                }
+                const cells = [kappaPerM, M_kNm, entry.N_kN, epsCi, c, sigmaC, Fc_kN];
                 for (let i = 0; i < nSteel; i++) {
                     const layer = section.layers[i];
                     if (layer && p.c != null && p.epsCi != null) {
                         const depth = layer.depth != null ? layer.depth : 0;
                         const epsS = RCSolver.strainAtDepth(depth, p.c, p.epsCi);
                         const sigS = RCSolver.sigmaSteel(epsS);
-                        cells.push(depth.toFixed(2), epsS.toFixed(6), sigS.toFixed(4));
+                        const Fs_kN = (i < FsLayers.length ? FsLayers[i] / 1000 : 0).toFixed(4);
+                        cells.push(depth.toFixed(2), epsS.toFixed(6), sigS.toFixed(4), Fs_kN);
                     } else {
-                        cells.push('', '', '');
+                        cells.push('', '', '', '');
                     }
                 }
                 rows.push(cells.join(','));

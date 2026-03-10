@@ -5,8 +5,8 @@
 Initial values (defaults used in solver when not provided):
 
   Section (concrete):
-    width  = 400 mm
-    height = 400 mm
+    width  = 500 mm
+    height = 500 mm
     layers = []   (steel layers set by caller; each layer: barCount, diameter mm, depth mm from top)
 
   Materials:
@@ -127,8 +127,8 @@ alt codes:
     axialForce(epsCi, c) {
       const s = this.section;
       if (!s) return 0;
-      const b = s.width || 400;
-      const h = s.height || 400;
+      const b = s.width || 500;
+      const h = s.height || 500;
 
       // --- Concrete force Fc (compression zone only, y from 0 to c) ---
       // Integrate stress over depth: Fc = ∫ σ(ε(y)) * b dy. Strain is linear: ε(y) = epsCi * (c - y) / c.
@@ -161,12 +161,41 @@ alt codes:
       return Fc + Fs;
     },
 
+    // Return { Fc (N), FsLayers ([F1, F2, ...] N) } for given epsCi and c (for CSV export).
+    forces(epsCi, c) {
+      const s = this.section;
+      const b = s ? (s.width || 500) : 500;
+      const h = s ? (s.height || 500) : 500;
+      const nStrip = 80;
+      const dy = h / nStrip;
+      let Fc = 0;
+      for (let i = 0; i < nStrip; i++) {
+        const y = (i + 0.5) * dy;
+        if (y >= c) break;
+        const eps = this.strainAtDepth(y, c, epsCi);
+        Fc += this.sigmaConcrete(eps) * b * dy;
+      }
+      const FsLayers = [];
+      const layers = (s && s.layers) ? s.layers : [];
+      for (const L of layers) {
+        const n = L.barCount || 0;
+        const d = L.diameter || 0;
+        const depth = L.depth != null ? L.depth : 0;
+        const As = n * (Math.PI * d * d / 4);
+        if (As <= 0) { FsLayers.push(0); continue; }
+        const eps = this.strainAtDepth(depth, c, epsCi);
+        const sig = this.sigmaSteel(eps);
+        FsLayers.push(sig * As);
+      }
+      return { Fc, FsLayers };
+    },
+
     // Internal moment (N·mm) about section centroid. Concrete from Hognestad integration so post-peak softening gives descending M–κ.
     moment(epsCi, c) {
       const s = this.section;
       if (!s) return 0;
-      const b = s.width || 400;
-      const h = s.height || 400;
+      const b = s.width || 500;
+      const h = s.height || 500;
       const yRef = h / 2;
       const nStrip = 80;
       const dy = h / nStrip;
@@ -200,7 +229,7 @@ alt codes:
     equilibrium(N_app, epsCi, cPrev, nextMax) {
       const s = this.section;
       if (!s) return { ok: false };
-      const h = (s.height || 400) * 10; // notes: c max = 10h
+      const h = (s.height || 500) * 10; // notes: c max = 10h
       let cLo = 1;
       let cHi = h;
       if (nextMax != null && nextMax > 0) {
